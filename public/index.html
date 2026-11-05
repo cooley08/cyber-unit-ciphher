@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subnet Lab</title>
+  <meta name="description" content="IPv4 subnet calculator, practice questions, and CIDR reference.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1><span class="prompt">$</span> subnet_lab<span class="cursor" aria-hidden="true">_</span></h1>
+  <p class="sub small muted">IPv4 subnet calculator + practice. Click any result to copy it.</p>
+
+  <nav role="tablist" aria-label="Sections">
+    <button role="tab" id="tab-calc" data-tab="calc" aria-controls="panel-calc" aria-selected="true">Calculator</button>
+    <button role="tab" id="tab-practice" data-tab="practice" aria-controls="panel-practice" aria-selected="false">Practice</button>
+    <button role="tab" id="tab-cheat" data-tab="cheat" aria-controls="panel-cheat" aria-selected="false">Reference</button>
+  </nav>
+
+  <main>
+
+  <!-- Calculator -->
+  <section id="panel-calc" role="tabpanel" aria-labelledby="tab-calc">
+    <p>
+      <label for="calc-input">IP address and prefix (or mask):</label><br>
+      <input id="calc-input" class="wide mono" type="text" autocomplete="off" spellcheck="false"
+             placeholder="192.168.10.77/27" value="192.168.10.77/27">
+    </p>
+    <p class="examples small">
+      Examples:
+      <button data-example="10.0.0.1/8">10.0.0.1/8</button>,
+      <button data-example="172.16.45.200/20">172.16.45.200/20</button>,
+      <button data-example="192.168.1.130 255.255.255.192">192.168.1.130 255.255.255.192</button>,
+      <button data-example="10.10.10.5/30">10.10.10.5/30</button>
+    </p>
+    <p id="calc-error" class="bad" role="alert"></p>
+
+    <div id="calc-out">
+      <h2>Results</h2>
+      <table class="results">
+        <tbody id="calc-results"></tbody>
+      </table>
+
+      <h2>Working</h2>
+      <ol id="calc-steps"></ol>
+
+      <h2>Binary</h2>
+      <p class="small muted">Network bits are shown in <span class="net">bold</span>, host bits in <span class="host">grey</span>.</p>
+      <div class="scroll">
+        <table class="binary">
+          <tbody id="calc-binary"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Practice -->
+  <section id="panel-practice" role="tabpanel" aria-labelledby="tab-practice" hidden>
+    <p>
+      <label for="difficulty">Difficulty:</label>
+      <select id="difficulty">
+        <option value="easy">Easy (/24 to /30)</option>
+        <option value="medium">Medium (/16 to /30)</option>
+        <option value="hard">Hard (/8 to /30)</option>
+      </select>
+      &nbsp;
+      <label for="focus">Type:</label>
+      <select id="focus"><option value="all">Mixed</option></select>
+    </p>
+    <p class="small" id="stats" aria-live="polite"></p>
+
+    <hr>
+
+    <p class="small muted" id="q-type"></p>
+    <p class="question" id="q-prompt"></p>
+    <form id="q-form" autocomplete="off">
+      <input id="q-input" class="mono" type="text" spellcheck="false" aria-label="Your answer">
+      <button type="submit" id="q-submit" class="primary">Check</button>
+      <button type="button" class="q-skip">Skip</button>
+    </form>
+    <p id="q-yesno" hidden>
+      <button data-answer="yes" class="primary">Yes</button>
+      <button data-answer="no" class="primary">No</button>
+      <button type="button" class="q-skip">Skip</button>
+    </p>
+    <div id="q-feedback" hidden>
+      <p id="q-verdict"></p>
+      <ol id="q-steps"></ol>
+      <button id="q-next" class="primary">Next &rarr;</button>
+    </div>
+
+    <hr>
+
+    <h2>Accuracy by type</h2>
+    <p class="small muted" id="weak-empty">Nothing yet.</p>
+    <table id="weak-table" hidden>
+      <thead><tr><th>Type</th><th>Correct</th><th>%</th></tr></thead>
+      <tbody id="weak-list"></tbody>
+    </table>
+    <p><button id="reset-stats">Reset stats</button></p>
+  </section>
+
+  <!-- Reference -->
+  <section id="panel-cheat" role="tabpanel" aria-labelledby="tab-cheat" hidden>
+    <h2>Finding the network and broadcast by hand</h2>
+    <ol>
+      <li>Find the first octet in the mask that isn't 255.</li>
+      <li>Block size = 256 minus that octet.</li>
+      <li>Subnets start at multiples of the block size (e.g. 0, 32, 64, 96 for a block of 32).</li>
+      <li>Network: the multiple at or below the IP's octet. Later octets are 0.</li>
+      <li>Broadcast: the next multiple minus 1. Later octets are 255.</li>
+      <li>Usable hosts = 2<sup>host bits</sup> &minus; 2.</li>
+    </ol>
+
+    <h2>Mask octet values</h2>
+    <table class="mono">
+      <thead><tr><th>Bits</th><th>Value</th><th>Block size</th></tr></thead>
+      <tbody id="octet-table"></tbody>
+    </table>
+
+    <h2>CIDR table</h2>
+    <div class="scroll">
+      <table class="mono">
+        <thead><tr><th>CIDR</th><th>Mask</th><th>Wildcard</th><th>Addresses</th><th>Usable</th></tr></thead>
+        <tbody id="cidr-table"></tbody>
+      </table>
+    </div>
+
+    <h2>Special ranges</h2>
+    <table>
+      <thead><tr><th>Range</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">10.0.0.0/8</td><td>Private</td></tr>
+        <tr><td class="mono">172.16.0.0/12</td><td>Private (172.16.0.0 to 172.31.255.255)</td></tr>
+        <tr><td class="mono">192.168.0.0/16</td><td>Private</td></tr>
+        <tr><td class="mono">127.0.0.0/8</td><td>Loopback</td></tr>
+        <tr><td class="mono">169.254.0.0/16</td><td>Link-local (APIPA)</td></tr>
+        <tr><td class="mono">100.64.0.0/10</td><td>Carrier-grade NAT</td></tr>
+        <tr><td class="mono">224.0.0.0/4</td><td>Multicast</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  </main>
+
+  <footer class="small muted">IPv4 only.</footer>
+
+  <script src="subnet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
