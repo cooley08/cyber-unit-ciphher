@@ -118,6 +118,182 @@
     b.addEventListener('click', () => { calcInput.value = b.dataset.example; renderCalc(); calcInput.focus(); });
   });
 
+  // ---------- planner ----------
+  const planBase = $('plan-base');
+  const planRows = $('plan-rows');
+  const PLAN_COLORS = ['#2f855a', '#2b6cb0', '#c05621', '#6b46c1', '#b83280', '#2c7a7b', '#975a16', '#4a5568'];
+  const PLAN_EXAMPLE = {
+    base: '192.168.1.0/24',
+    rows: [
+      { name: 'Sales', hosts: '50' },
+      { name: 'Engineering', hosts: '25' },
+      { name: 'HR', hosts: '10' },
+      { name: 'Router link', hosts: '2' }
+    ]
+  };
+  const MAX_HOSTS = 16777214; // a /8
+
+  function addPlanRow(name, hosts) {
+    const tr = el('tr');
+    const nameIn = el('input', 'plan-name');
+    nameIn.type = 'text';
+    nameIn.value = name || '';
+    nameIn.placeholder = 'Group ' + (planRows.children.length + 1);
+    nameIn.setAttribute('aria-label', 'Group name');
+    const hostIn = el('input', 'plan-hosts mono');
+    hostIn.type = 'text';
+    hostIn.inputMode = 'numeric';
+    hostIn.value = hosts || '';
+    hostIn.placeholder = 'e.g. 30';
+    hostIn.setAttribute('aria-label', 'Devices needed');
+    const rm = el('button', 'plan-rm', '×');
+    rm.type = 'button';
+    rm.title = 'Remove';
+    rm.setAttribute('aria-label', 'Remove group');
+    rm.addEventListener('click', () => { tr.remove(); renderPlan(); });
+    const cells = [nameIn, hostIn, rm].map((c) => { const td = el('td'); td.appendChild(c); return td; });
+    tr.append(...cells);
+    planRows.appendChild(tr);
+    return tr;
+  }
+
+  function loadPlan(plan) {
+    planBase.value = plan.base;
+    planRows.replaceChildren();
+    plan.rows.forEach((r) => addPlanRow(r.name, r.hosts));
+    if (!plan.rows.length) addPlanRow();
+    renderPlan();
+  }
+
+  function renderPlan() {
+    const error = $('plan-error');
+    error.replaceChildren();
+    const raw = Array.from(planRows.querySelectorAll('tr')).map((tr, i) => ({
+      name: tr.querySelector('.plan-name').value,
+      hosts: tr.querySelector('.plan-hosts').value,
+      label: tr.querySelector('.plan-name').value.trim() || 'Group ' + (i + 1),
+      color: PLAN_COLORS[i % PLAN_COLORS.length]
+    }));
+    store.set('plan', { base: planBase.value, rows: raw.map((r) => ({ name: r.name, hosts: r.hosts })) });
+
+    const out = $('plan-out');
+    const note = $('plan-base-note');
+    note.hidden = true;
+    const parsed = S.parseInput(planBase.value);
+    if (parsed.error) {
+      if (planBase.value.trim()) error.textContent = parsed.error;
+      out.hidden = true;
+      return;
+    }
+    const base = S.calculate(parsed.ip, parsed.cidr);
+    if (base.network !== parsed.ip) {
+      note.textContent = `That's a host address, so the planner is using its network: ${S.intToIp(base.network)}/${base.cidr}.`;
+      note.hidden = false;
+    }
+
+    const reqs = [];
+    for (const r of raw) {
+      const h = r.hosts.replace(/[,\s_]/g, '');
+      if (!h) continue;
+      if (!/^\d+$/.test(h) || Number(h) < 1) { error.textContent = `"${r.label}" needs a whole number of devices (1 or more).`; out.hidden = true; return; }
+      if (Number(h) > MAX_HOSTS) { error.textContent = `"${r.label}" is too big. The max is ${fmt(MAX_HOSTS)} devices (a /8).`; out.hidden = true; return; }
+      reqs.push({ name: r.label, hosts: Number(h), color: r.color });
+    }
+    if (!reqs.length) { out.hidden = true; return; }
+
+    const plan = S.planSubnets(base.network, base.cidr, reqs);
+    const colorOf = (a) => reqs[a.index].color;
+    const ip = S.intToIp;
+    out.hidden = false;
+
+    if (!plan.fitsAll) {
+      const s = plan.suggest;
+      const msg = el('p', null,
+        `Doesn't fit: these groups need ${fmt(plan.needed)} addresses, but /${base.cidr} only has ${fmt(plan.total)}. `);
+      if (s && s.cidr < base.cidr) {
+        const btn = el('button', 'primary', `Use ${ip(s.network)}/${s.cidr} instead`);
+        btn.type = 'button';
+        btn.addEventListener('click', () => { planBase.value = `${ip(s.network)}/${s.cidr}`; renderPlan(); });
+        msg.appendChild(btn);
+      }
+      error.appendChild(msg);
+    }
+
+    // layout bar: placed subnets then free space, all in address order
+    const segs = plan.allocations.filter((a) => a.fits).map((a) => ({
+      size: a.size, label: a.name, color: colorOf(a), title: `${a.name}: ${ip(a.network)}/${a.cidr}`
+    })).concat(plan.free.map((f) => ({
+      size: f.size, label: 'free', free: true, title: `Free: ${ip(f.network)}/${f.cidr}`
+    })));
+    $('plan-bar').replaceChildren(...segs.map((s) => {
+      const d = el('div', 'plan-seg' + (s.free ? ' free' : ''));
+      d.style.flexGrow = s.size;
+      if (!s.free) d.style.background = s.color;
+      d.title = s.title;
+      if (s.size / plan.total >= 0.07) d.textContent = s.label;
+      return d;
+    }));
+
+    const usedPct = Math.round((plan.used / plan.total) * 1000) / 10;
+    $('plan-summary').textContent =
+      `Allocated ${fmt(plan.used)} of ${fmt(plan.total)} addresses (${usedPct}%). ` +
+      `${fmt(plan.total - plan.used)} left over. Hover the bar to see each block.`;
+
+    $('plan-table').replaceChildren(...plan.allocations.map((a) => {
+      const tr = el('tr');
+      const nameTd = el('td');
+      const sw = el('span', 'swatch');
+      sw.style.background = colorOf(a);
+      nameTd.append(sw, a.name);
+      if (!a.fits) {
+        const td = el('td', 'bad', "doesn't fit");
+        td.colSpan = 5;
+        tr.append(nameTd, td);
+        return tr;
+      }
+      const pct = Math.round((a.hosts / a.usable) * 100);
+      const cap = el('td');
+      cap.append(`${fmt(a.hosts)} / ${fmt(a.usable)} `, el('span', 'muted', `(${pct}% full)`));
+      tr.append(
+        nameTd,
+        el('td', null, `${ip(a.network)}/${a.cidr}`),
+        el('td', null, ip(S.cidrToMask(a.cidr))),
+        el('td', null, `${ip(a.first)} – ${ip(a.last)}`),
+        el('td', null, ip(a.broadcast)),
+        cap
+      );
+      return tr;
+    }));
+
+    const free = $('plan-free');
+    free.replaceChildren(...(plan.free.length
+      ? plan.free.map((f) => el('li', null, `${ip(f.network)}/${f.cidr}  (${fmt(f.size)} addresses)`))
+      : [el('li', 'muted', 'Nothing. The network is fully used.')]));
+
+    $('plan-why').replaceChildren(
+      el('li', null, 'Every subnet loses 2 addresses (network + broadcast), and sizes only come in powers of 2.'),
+      ...plan.allocations.map((a) => el('li', null, a.reason)),
+      el('li', null, 'Biggest goes first so each subnet starts on a multiple of its own size. That is what makes the addresses valid.')
+    );
+  }
+
+  planBase.addEventListener('input', renderPlan);
+  planRows.addEventListener('input', renderPlan);
+  // Enter on the last row adds a new one
+  planRows.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+    e.preventDefault();
+    const tr = e.target.closest('tr');
+    if (tr === planRows.lastElementChild) addPlanRow().querySelector('input').focus();
+    else tr.nextElementSibling.querySelector('input').focus();
+  });
+  $('plan-add').addEventListener('click', () => { addPlanRow().querySelector('input').focus(); });
+  $('plan-example').addEventListener('click', () => loadPlan(PLAN_EXAMPLE));
+  $('plan-clear').addEventListener('click', () => loadPlan({ base: planBase.value, rows: [] }));
+
+  const savedPlan = store.get('plan', null);
+  loadPlan(savedPlan && typeof savedPlan.base === 'string' && Array.isArray(savedPlan.rows) ? savedPlan : PLAN_EXAMPLE);
+
   // ---------- practice ----------
   const focusSel = $('focus');
   const diffSel = $('difficulty');
@@ -319,5 +495,5 @@
   renderCalc();
   renderStats();
   const savedTab = store.get('tab', 'calc');
-  showTab(['calc', 'practice', 'cheat'].includes(savedTab) ? savedTab : 'calc');
+  showTab(['calc', 'plan', 'practice', 'cheat'].includes(savedTab) ? savedTab : 'calc');
 })();

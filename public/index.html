@@ -13,6 +13,7 @@
 
   <nav role="tablist" aria-label="Sections">
     <button role="tab" id="tab-calc" data-tab="calc" aria-controls="panel-calc" aria-selected="true">Calculator</button>
+    <button role="tab" id="tab-plan" data-tab="plan" aria-controls="panel-plan" aria-selected="false">Planner</button>
     <button role="tab" id="tab-practice" data-tab="practice" aria-controls="panel-practice" aria-selected="false">Practice</button>
     <button role="tab" id="tab-cheat" data-tab="cheat" aria-controls="panel-cheat" aria-selected="false">Reference</button>
   </nav>
@@ -51,6 +52,48 @@
           <tbody id="calc-binary"></tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- Planner -->
+  <section id="panel-plan" role="tabpanel" aria-labelledby="tab-plan" hidden>
+    <p class="small muted">Split one network into subnets sized for each group. Each group gets the smallest subnet that fits, biggest first, so nothing overlaps.</p>
+    <p>
+      <label for="plan-base">Network to split:</label><br>
+      <input id="plan-base" class="wide mono" type="text" autocomplete="off" spellcheck="false" placeholder="192.168.1.0/24">
+    </p>
+    <p id="plan-base-note" class="small muted" hidden></p>
+
+    <table class="plan-input">
+      <thead><tr><th>Name</th><th>Devices needed</th><th></th></tr></thead>
+      <tbody id="plan-rows"></tbody>
+    </table>
+    <p>
+      <button id="plan-add" type="button">+ Add group</button>
+      <button id="plan-example" type="button">Example</button>
+      <button id="plan-clear" type="button">Clear</button>
+    </p>
+    <div id="plan-error" class="bad" role="alert"></div>
+
+    <div id="plan-out" hidden>
+      <h2>Layout</h2>
+      <div class="plan-bar" id="plan-bar"></div>
+      <p class="small" id="plan-summary"></p>
+
+      <h2>Subnets</h2>
+      <div class="scroll">
+        <table class="plan-table">
+          <thead><tr><th>Name</th><th>Subnet</th><th>Mask</th><th>Usable range</th><th>Broadcast</th><th>Capacity</th></tr></thead>
+          <tbody id="plan-table"></tbody>
+        </table>
+      </div>
+
+      <h2>Left over</h2>
+      <p class="small muted">Unused space, already split into valid blocks you can hand out later.</p>
+      <ul id="plan-free" class="mono"></ul>
+
+      <h2>Why these sizes</h2>
+      <ol id="plan-why"></ol>
     </div>
   </section>
 

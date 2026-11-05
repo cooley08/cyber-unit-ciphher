@@ -169,6 +169,67 @@
     return steps;
   }
 
+  // ---------- subnet planner (VLSM) ----------
+  // Smallest prefix with room for n usable hosts (minimum /30)
+  function prefixForHosts(n) {
+    let bits = 2;
+    while (Math.pow(2, bits) - 2 < n) bits++;
+    return 32 - bits;
+  }
+
+  // Split an address range into the fewest aligned CIDR blocks
+  function freeBlocks(start, end) {
+    const out = [];
+    while (start <= end) {
+      let size = 1;
+      while (size * 2 <= end - start + 1 && start % (size * 2) === 0) size *= 2;
+      out.push({ network: start >>> 0, cidr: 32 - Math.log2(size), size });
+      start += size;
+    }
+    return out;
+  }
+
+  // requests: [{ name, hosts }]. Largest first, so every block lands on a boundary it fits.
+  function planSubnets(baseIp, baseCidr, requests) {
+    const base = calculate(baseIp, baseCidr);
+    const end = base.network + base.total - 1;
+    const sorted = requests
+      .map((r, i) => Object.assign({}, r, { index: i, cidr: prefixForHosts(r.hosts) }))
+      .sort((a, b) => a.cidr - b.cidr || a.index - b.index);
+
+    let cursor = base.network;
+    let needed = 0;
+    const allocations = sorted.map((r) => {
+      const size = Math.pow(2, 32 - r.cidr);
+      needed += size;
+      const a = {
+        name: r.name, hosts: r.hosts, index: r.index, cidr: r.cidr, size,
+        reason: `${r.name}: ${r.hosts.toLocaleString('en-US')} hosts + 2 = ${(r.hosts + 2).toLocaleString('en-US')} addresses, rounded up to ${size.toLocaleString('en-US')} = /${r.cidr}`
+      };
+      a.fits = r.cidr >= baseCidr && cursor + size - 1 <= end;
+      if (a.fits) {
+        const c = calculate(cursor, r.cidr);
+        Object.assign(a, { network: c.network, broadcast: c.broadcast, first: c.first, last: c.last, usable: c.usable });
+        cursor += size;
+      }
+      return a;
+    });
+
+    const fitsAll = allocations.every((a) => a.fits);
+    let suggest = null;
+    if (!fitsAll) {
+      let p = baseCidr;
+      while (p > 0 && Math.pow(2, 32 - p) < needed) p--;
+      suggest = { cidr: p, network: calculate(base.network, p).network };
+    }
+    return {
+      base, allocations, fitsAll, needed, suggest,
+      used: cursor - base.network,
+      total: base.total,
+      free: cursor <= end ? freeBlocks(cursor, end) : []
+    };
+  }
+
   // ---------- practice questions ----------
   const TYPES = {
     network: 'Network address',
@@ -343,7 +404,8 @@
 
   const api = {
     parseIp, intToIp, octet, cidrToMask, maskToCidr, toBinary, ipClass, addressType,
-    parseInput, calculate, explainRange, explainMask, makeQuestion, TYPES, DIFFICULTY
+    parseInput, calculate, explainRange, explainMask, makeQuestion, TYPES, DIFFICULTY,
+    prefixForHosts, freeBlocks, planSubnets
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Subnet = api;
